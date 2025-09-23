@@ -10,22 +10,29 @@ It contains Jupyter Notebooks with **visualizations, formulas, and explanations*
 
 ```
 
-ml-basics-metrics/
+ml-basics-metrics
+├── README.md
+├── requitements.txt 
+├── concepts
+│   ├── bias_variance_tradeoff.ipynb
+│   
+├── distances
+│   ├── Chebyshev.ipynb
+│   ├── Cosine.ipynb
+│   ├── Euclidean.ipynb
+│   ├── Manhattan.ipynb
+│   ├── Minkowski.ipynb
 │
-├── distances/             
-│   ├── euclidean.ipynb
-│   ├── manhattan.ipynb
-│   ├── minkowski.ipynb
-│   ├── chebyshev.ipynb
-│   └── cosine.ipynb
-│
-├── evaluations/           
-│   ├── accuracy.ipynb
-│   ├── precision\_recall\_f1.ipynb
-│   └── confusion\_matrix.ipynb
-│
-└── concepts/              
-└── bias\_variance\_tradeoff.ipynb
+├── evaluation
+│   ├── Accuracy.ipynb
+│   ├── confusion_matrix.ipynb
+│   ├── precision_recall_f1..ipynb
+│   
+└── models
+    └── linear-regression
+        ├── insurance.csv
+        └── Linear-Regression.ipynb
+
 
 ````
 
