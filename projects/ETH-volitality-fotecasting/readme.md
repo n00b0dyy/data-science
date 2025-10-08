@@ -1,3 +1,34 @@
+────────────────────────────────────────────────────────
+🚧 Project under construction — stay tuned 🚧
+────────────────────────────────────────────────────────
+[▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░] 68%
+
+ETH-volatility-forecasting/
+│ README.md
+│ requirements.txt
+│
+├───data/
+│ train_sample.csv
+│ out_of_sample_test.csv
+│ raw_eth_usdt_5m.csv
+│
+├───src/
+│ **init**.py
+│ data_loader.py
+│ preprocessing.py
+│ garch_model.py
+│ egarch_model.py
+│ evaluation.py
+│
+├───notebooks/
+│ 01_EDA_ETH.ipynb
+│ 02_GARCH_Modeling.ipynb
+│ 03_EGARCH_Evaluation.ipynb
+│
+└───plots/
+volatility_cluster.png
+residuals_distribution.png
+
 ### Modeling 5-minute Ethereum volatility with GARCH-family models
 
 ---
