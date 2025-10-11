@@ -4,8 +4,8 @@
 
 <div align="center" style="margin-top:25px; margin-bottom:25px;">
 
-<img src="plots/DISTRIBUTIONS.png" width="400" style="margin-right:20px; opacity:0.9; vertical-align:middle;">
-<img src="plots/LOG_RET_DIST.png" width="400" style="opacity:0.9; vertical-align:middle;">
+<img src="plots/DISTRIBUTIONS.png" width="480" height="320" style="margin-right:25px; opacity:0.95; vertical-align:middle; object-fit:cover; border-radius:6px;">
+<img src="plots/LOG_RET_DIST.png" width="480" height="320" style="opacity:0.95; vertical-align:middle; object-fit:cover; border-radius:6px;">
 
 </div>
 
