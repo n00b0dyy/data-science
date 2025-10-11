@@ -4,17 +4,14 @@
 
 <div align="center" style="margin-top:25px; margin-bottom:25px;">
 
-<img src="plots/DISTRIBUTIONS.png" width="190" style="margin-left:-10px; opacity:0.85;">
-<img src="plots/LOG_RET_DIST.png" width="190" style="margin-left:-40px; opacity:0.75;">
-<img src="plots/RAW_VOLUME_DIST.png" width="190" style="margin-left:-40px; opacity:0.65;">
-<img src="plots/ROLL_STD_MAD_7D.png" width="190" style="margin-left:-40px; opacity:0.75;">
-<img src="plots/CROSS_CORR.png" width="190" style="margin-left:-40px; opacity:0.85;">
+<img src="plots/DISTRIBUTIONS.png" width="400" style="margin-right:20px; opacity:0.9; vertical-align:middle;">
+<img src="plots/LOG_RET_DIST.png" width="400" style="opacity:0.9; vertical-align:middle;">
 
 </div>
 
 <p align="center">
-  <i>Exploratory diagnostics from the Ethereum volatility EDA.<br>
-  Heavy tails, volatility clustering, and chaotic cross-correlations — all the usual crypto madness.</i>
+  <i>Distributions of logarithmic returns and comparative diagnostic visualization.<br>
+  Heavy tails, volatility clustering, and the peculiar geometry of crypto noise.</i>
 </p>
 
 ---
