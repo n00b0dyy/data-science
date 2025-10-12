@@ -1,5 +1,6 @@
 import os
 import sys
+from src.config import * 
 
 # === Path setup ===
 project_root = os.path.abspath(os.path.dirname(__file__))
@@ -18,7 +19,7 @@ def main():
     df = load_eth_data()
 
     # 2️⃣ Train model
-    res, df = train_egarch(df, arma_lags=(1, 1), p=1, o=1, q=1)
+    res, df = train_egarch(df, p=1, o=1, q=1)
 
     # 3️⃣ Plot and save results
     plots_dir = os.path.join(project_root, "plots")

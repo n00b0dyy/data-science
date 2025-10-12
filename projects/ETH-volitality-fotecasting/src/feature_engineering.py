@@ -1,6 +1,4 @@
-import numpy as np
-import pandas as pd
-from scipy.stats import kurtosis
+from src.config import * 
 
 def build_features(df, rolling_window=7 * 24 * 12):
     """
