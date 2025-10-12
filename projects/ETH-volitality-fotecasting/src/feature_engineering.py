@@ -22,6 +22,8 @@ def build_features(df, rolling_window=7 * 24 * 12):
 
     rolling_window = min(rolling_window, len(df))
 
+    df["range"] = df["high"] - df["low"]
+    
     # --- Log-volume and rolling statistics ---
     df["log_volume"] = np.log1p(df["volume"])
 
@@ -57,7 +59,6 @@ def build_features(df, rolling_window=7 * 24 * 12):
 
     # --- Log returns and descriptive stats ---
     df["log_return"] = np.log(df["close"] / df["close"].shift(1))
-    df = df.dropna(subset=["log_return"])
 
     mu = df["log_return"].mean()
     sigma = df["log_return"].std(ddof=1)
