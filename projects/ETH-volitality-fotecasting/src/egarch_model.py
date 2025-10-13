@@ -1,5 +1,5 @@
 # === EGARCH model training and evaluation ===
-from src.config import *                     # centralized imports + paths
+from src.config import *                     
 from src.data_loader import load_eth_data
 from src.feature_engineering import build_features
 from arch import arch_model
@@ -79,7 +79,7 @@ def plot_conditional_variance(res, df, save_path=None):
 
     fig, ax = plt.subplots(figsize=(12, 6))
     cond_var = res.conditional_volatility
-    realized = df["log_return"].rolling(window=288).std() * 100
+    realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
 
     ax.plot(df["open_time"].iloc[-len(cond_var):], cond_var,
             label="Predicted Volatility (EGARCH)", color="orange", lw=1.2)
