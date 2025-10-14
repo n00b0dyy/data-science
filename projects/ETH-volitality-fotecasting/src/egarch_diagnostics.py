@@ -82,7 +82,17 @@ def egarch_residual_diagnostics(res, lags=20, save_plots=True):
     # 3. Jarque–Bera test (normality)
     # ========================================================
     print_section("Jarque–Bera Test for Normality")
-    jb_stat, jb_p, skew, kurt = jarque_bera(residuals)
+
+    jb_result = jarque_bera(residuals)
+
+    # Handle old/new SciPy return format
+    if isinstance(jb_result, tuple) and len(jb_result) == 4:
+        jb_stat, jb_p, skew, kurt = jb_result
+    else:
+        jb_stat, jb_p = jb_result
+        skew = residuals.skew()
+        kurt = residuals.kurtosis()
+
     print(f"JB statistic = {jb_stat:.4f}, p-value = {jb_p:.4f}")
     print(f"Skewness = {skew:.4f}, Kurtosis = {kurt:.4f}")
 
