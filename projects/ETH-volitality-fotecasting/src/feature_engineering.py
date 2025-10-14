@@ -55,14 +55,21 @@ def build_features(df, rolling_window=7 * 24 * 12):
         .mean()
     )
 
-    # --- Log returns and descriptive stats ---
+    # --- Log returns ---
     df["log_return"] = np.log(df["close"] / df["close"].shift(1))
 
+    # Drop NaN and infinite values before modeling
+    df["log_return"].replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.dropna(subset=["log_return"], inplace=True)
+
+    # --- Descriptive statistics ---
     mu = df["log_return"].mean()
     sigma = df["log_return"].std(ddof=1)
     kurt = kurtosis(df["log_return"].to_numpy(dtype=np.float64), fisher=True, bias=False)
 
+    # Print with warning if extreme
+    if kurt > 30:
+        print(f"⚠️ Extreme leptokurtosis detected (kurtosis={kurt:.2f}) — heavy tails expected.")
     print(f"μ={mu:.6f}, σ={sigma:.6f}, kurtosis={kurt:.3f}")
 
     return df, mu, sigma, kurt
-
