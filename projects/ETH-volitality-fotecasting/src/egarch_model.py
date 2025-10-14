@@ -3,17 +3,17 @@ from src.config import *
 from src.data_loader import load_eth_data
 from src.feature_engineering import build_features
 from arch import arch_model
-
+import pickle
 
 def print_section(title: str):
     """Helper to print section headers nicely."""
     line = "═" * 60
     print(f"\n{line}\n{title.center(60)}\n{line}")
 
-
 def train_egarch(df, p=1, o=1, q=1):
     """
     Fit a pure EGARCH model to ETH log returns.
+    Saves trained model in a portable, platform-independent way.
     """
     print_section("Preparing Data and Features")
     df, mu, sigma, kurt = build_features(df)
@@ -70,6 +70,16 @@ def train_egarch(df, p=1, o=1, q=1):
     print_section("Model Training Summary")
     print(res.summary())
 
+    # === Save trained model ===
+    data_dir = os.path.join(PROJECT_ROOT, "data")
+    os.makedirs(data_dir, exist_ok=True)   # ✅ create if missing
+
+    model_path = os.path.join(data_dir, "egarch_model.pkl")
+    with open(model_path, "wb") as f:
+        pickle.dump(res, f)
+
+    print(f"💾 EGARCH model saved to: {os.path.relpath(model_path, PROJECT_ROOT)}")
+
     return res, df
 
 
@@ -95,7 +105,7 @@ def plot_conditional_variance(res, df, save_path=None):
 
     if save_path:
         plt.savefig(save_path, dpi=300)
-        print(f"📈 Plot saved to: {save_path}")
+        print(f"📈 Plot saved to: {os.path.relpath(save_path, PROJECT_ROOT)}")
 
     plt.show()
 
