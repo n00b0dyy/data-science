@@ -60,7 +60,7 @@ def build_features(df, rolling_window=7 * 24 * 12):
 
     mu = df["log_return"].mean()
     sigma = df["log_return"].std(ddof=1)
-    kurt = kurtosis(df["log_return"], fisher=True)
+    kurt = kurtosis(df["log_return"].to_numpy(dtype=np.float64), fisher=True, bias=False)
 
     print(f"μ={mu:.6f}, σ={sigma:.6f}, kurtosis={kurt:.3f}")
 
