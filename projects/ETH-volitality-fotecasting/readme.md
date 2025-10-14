@@ -44,9 +44,8 @@ Before touching a volatility model, you need to understand the physics behind it
 We **never** model raw prices — only **log returns**. Prices are non-stationary by definition; working on them is statistical profanity.  
 Volatility models like GARCH assume stationarity, finite variance, and predictable conditional heteroskedasticity — ignore that and your model will implode faster than an overleveraged token.
 
-#### 3. Models
+#### 3. Model
 
-- **GARCH(1,1)** — baseline for conditional variance.
 - **EGARCH(1,1)** — captures asymmetry and leverage effects, because markets don’t react linearly to pain.
 
 Evaluation is done via **out-of-sample forecasts**, checking whether variance predictions generalize beyond the training window.
