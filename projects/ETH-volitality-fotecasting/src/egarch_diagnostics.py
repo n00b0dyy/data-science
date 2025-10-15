@@ -19,9 +19,11 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # === Local imports ===
-from config import *                   # global paths and constants
-from data_loader import load_eth_data  # load CSV data
-from egarch_model import train_egarch  # model training pipeline
+# === Local imports ===
+from src.config import *                   # global paths and constants
+from src.data_loader import load_eth_data  # load CSV data
+from src.egarch_model import train_egarch  # model training pipeline
+
 
 # ============================================================
 # Utility
@@ -37,18 +39,29 @@ def print_section(title: str):
 # Core Diagnostic Function
 # ============================================================
 def plot_conditional_variance(res, df, save_path=None):
-    """Plot conditional variance (EGARCH output) vs realized volatility."""
+    """Plot conditional variance (EGARCH output or forecast) vs realized volatility."""
     print_section("Plotting Conditional Variance")
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    cond_var = res.conditional_volatility
+
+    # Use forecasted volatility if present
+    if "predicted_vol" in df.columns:
+        cond_var = df["predicted_vol"]
+        label_pred = "Predicted Volatility (Forecast)"
+    else:
+        cond_var = res.conditional_volatility
+        label_pred = "Predicted Volatility (In-Sample EGARCH)"
+
     realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
 
-    ax.plot(df["open_time"].iloc[-len(cond_var):], cond_var,
-            label="Predicted Volatility (EGARCH)", color="orange", lw=1.2)
-    ax.plot(df["open_time"].iloc[-len(realized):], realized,
-            label="Realized Volatility (Rolling 1D Std)",
-            color="steelblue", alpha=0.7)
+    # align lengths safely
+    n = min(len(df["open_time"]), len(cond_var), len(realized))
+    x = df["open_time"].iloc[-n:]
+    y1 = cond_var.iloc[-n:]
+    y2 = realized.iloc[-n:]
+
+    ax.plot(x, y1, label=label_pred, color="orange", lw=1.2)
+    ax.plot(x, y2, label="Realized Volatility (Rolling Std)", color="steelblue", alpha=0.7)
 
     ax.set_title("Conditional Volatility — EGARCH(1,1)", fontsize=12)
     ax.set_xlabel("Time")
@@ -58,9 +71,10 @@ def plot_conditional_variance(res, df, save_path=None):
 
     if save_path:
         plt.savefig(save_path, dpi=300)
-        print(f"📈 Plot saved to: {os.path.relpath(save_path, PROJECT_ROOT)}")
+        print(f"📈 Plot saved to {os.path.relpath(save_path, PROJECT_ROOT)}")
 
     plt.show()
+
 
 def weekly_volatility_comparison(res, df):
     """

@@ -84,16 +84,3 @@ def train_egarch(df, p=1, o=1, q=1):
 
 
 
-
-
-if __name__ == "__main__":
-    print_section("Loading ETH/USDT Data")
-    df = load_eth_data()
-
-    print_section("Starting EGARCH Training")
-    res, df = train_egarch(df, p=1, o=1, q=1)
-
-    plot_conditional_variance(
-        res, df,
-        save_path=os.path.join(PLOTS_DIR, "egarch_volatility_comparison.png")
-    )
