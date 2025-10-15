@@ -79,19 +79,28 @@ def plot_conditional_variance(res, df, save_path=None):
 def weekly_volatility_comparison(res, df):
     """
     Compare EGARCH predicted volatility vs realized volatility per week.
-    Prints a summary table of their mean differences and correlations.
+    Works both for in-sample model (res.conditional_volatility)
+    and out-of-sample forecast (df['predicted_vol']).
     """
     print_section("Weekly Volatility Comparison Table")
 
-    cond_var = pd.Series(res.conditional_volatility, index=df.index[-len(res.conditional_volatility):])
+    # --- Determine which volatility source to use ---
+    if "predicted_vol" in df.columns:
+        cond_var = df["predicted_vol"]
+    else:
+        cond_var = pd.Series(res.conditional_volatility, index=df.index[-len(res.conditional_volatility):]) * 100
+
     realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
 
+    # --- Align lengths ---
+    n = min(len(df["open_time"]), len(cond_var), len(realized))
     tmp = pd.DataFrame({
-        "open_time": df["open_time"].iloc[-len(cond_var):],
-        "predicted_vol": cond_var * 100,
-        "realized_vol": realized.iloc[-len(cond_var):]
+        "open_time": df["open_time"].iloc[-n:],
+        "predicted_vol": cond_var.iloc[-n:],
+        "realized_vol": realized.iloc[-n:]
     }).dropna()
 
+    # --- Weekly aggregation ---
     weekly = (
         tmp.set_index("open_time")
         .resample("W")
@@ -99,7 +108,6 @@ def weekly_volatility_comparison(res, df):
         .dropna()
     )
 
- 
     weekly["diff_abs"] = (weekly["predicted_vol"] - weekly["realized_vol"]).abs()
     weekly["corr"] = (
         tmp.set_index("open_time")
@@ -109,7 +117,7 @@ def weekly_volatility_comparison(res, df):
         .to_numpy()
     )
 
- 
+    # --- Print summary table ---
     print(f"{'Week':<12}{'Predicted':>12}{'Realized':>12}{'AbsDiff':>12}{'Corr':>10}")
     print("-" * 58)
     for i, row in weekly.iterrows():
@@ -129,6 +137,7 @@ def weekly_volatility_comparison(res, df):
     print(f" Mean abs. diff (%) : {mean_diff:.3f}")
 
     return weekly
+
 
 def egarch_residual_diagnostics(res, lags=20, save_plots=True):
     """
