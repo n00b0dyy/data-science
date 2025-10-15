@@ -1,14 +1,30 @@
+# Python & Jupyter
 .ipynb_checkpoints/
+.jupyter/
+*.ipynb_convert
+*.nbconvert/
+*.nbconvert.ipynb
+*.nb.tmp
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Virtual environments
 env/
 venv/
 .venv/
+
+# Build artifacts
 *.egg-info/
+
+# OS crap
 .DS_Store
 Thumbs.db
+
+# Logs & temporary files
 *.log
 *.tmp
+
+# Anaconda junk
 anaconda_projects/
