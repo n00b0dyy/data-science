@@ -24,7 +24,7 @@ for path in [PLOTS_DIR, LOG_DIR]:
 DATA_PATH = os.path.join(DATA_DIR, "train_sample.csv")
 
 # --- Rolling Configuration ---
-ROLLING_WINDOW = 288  # 1 day (can adjust)
+ROLLING_WINDOW = 12 # (5m interval: number 5 means 25 minutes, number 12 means 60 minutes, can adjust)
 
 # --- EGARCH Model Defaults ---
 EGARCH_P = 1

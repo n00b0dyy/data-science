@@ -1,6 +1,6 @@
 from src.config import * 
 
-def build_features(df, rolling_window=288):
+def build_features(df, rolling_window=ROLLING_WINDOW):
     """
     Compute core rolling and exponential features for ETH candle data.
     Designed for use in notebooks (e.g., 01_EDA_ETH.ipynb).
@@ -10,7 +10,7 @@ def build_features(df, rolling_window=288):
     df : pd.DataFrame
         DataFrame containing at least 'close' and 'volume' columns.
     rolling_window : int
-        Window size for rolling statistics (default = 7 days of 5-min candles).
+        Window size for rolling statistics
 
     Returns
     -------
@@ -27,22 +27,22 @@ def build_features(df, rolling_window=288):
 
     df["rolling_mean"] = (
         df["log_volume"]
-        .rolling(window=rolling_window, min_periods=100, closed="left")
+        .rolling(window=rolling_window, min_periods = max(3, rolling_window // 2), closed="left")
         .mean()
     )
     df["rolling_std"] = (
         df["log_volume"]
-        .rolling(window=rolling_window, min_periods=100, closed="left")
+        .rolling(window=rolling_window, min_periods = max(3, rolling_window // 2), closed="left")
         .std()
     )
     df["rolling_median"] = (
         df["log_volume"]
-        .rolling(window=rolling_window, min_periods=100, closed="left")
+        .rolling(window=rolling_window, min_periods = max(3, rolling_window // 2), closed="left")
         .median()
     )
     df["rolling_mad"] = (
         df["log_volume"]
-        .rolling(window=rolling_window, min_periods=100, closed="left")
+        .rolling(window=rolling_window, min_periods = max(3, rolling_window // 2), closed="left")
         .apply(lambda x: np.median(np.abs(x - np.median(x))), raw=False)
     )
 
