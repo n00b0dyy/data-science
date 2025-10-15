@@ -1,6 +1,6 @@
 from src.config import * 
 
-def build_features(df, rolling_window=7 * 24 * 12):
+def build_features(df, rolling_window=288):
     """
     Compute core rolling and exponential features for ETH candle data.
     Designed for use in notebooks (e.g., 01_EDA_ETH.ipynb).
