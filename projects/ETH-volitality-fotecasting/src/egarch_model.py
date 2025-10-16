@@ -13,6 +13,7 @@ def print_section(title: str):
     line = "═" * 60
     print(f"\n{line}\n{title.center(60)}\n{line}")
 
+
 def train_egarch(train_df, p=1, o=1, q=1):
     """
     Fit an EGARCH(p,o,q) model on ETH log returns using only the training dataset.
@@ -28,17 +29,17 @@ def train_egarch(train_df, p=1, o=1, q=1):
 
     print_section("Preparing Data and Features")
 
-
+    # 🧱 Build features — includes log_return already scaled ×100
     train_df, mu, sigma, kurt = build_features(train_df, compute_stats=True)
 
-
+    # --- Check for missing values ---
     nan_counts = train_df.isna().sum()
     nan_columns = nan_counts[nan_counts > 0]
     if not nan_columns.empty:
         print_section("Missing Data Detected")
         for col, count in nan_columns.items():
             print(f" • {col:<20} : {count:>6} missing values")
-        print(f"\n🧹 Automatically dropping NaN rows to ensure data integrity.")
+        print("\n🧹 Automatically dropping NaN rows to ensure data integrity.")
         train_df = train_df.dropna().reset_index(drop=True)
 
     # --- Verify log_return existence and validity ---
@@ -49,7 +50,7 @@ def train_egarch(train_df, p=1, o=1, q=1):
         raise ValueError(f"❌ {missing} NaN values found in 'log_return'. Training aborted.")
 
     # --- Summary of inputs ---
-    returns = train_df["log_return"] * 1000
+    returns = train_df["log_return"].to_numpy()  # already scaled ×100
     print_section("Model Input Summary")
     print(f" Observations : {len(returns):>10}")
     print(f" Mean          : {mu:>10.6f}")
@@ -84,7 +85,6 @@ def train_egarch(train_df, p=1, o=1, q=1):
     with open(model_path, "wb") as f:
         pickle.dump(res, f)
 
-
     stats_path = os.path.join(data_dir, "train_stats.json")
     stats = {"mu": float(mu), "sigma": float(sigma), "kurtosis": float(kurt)}
     with open(stats_path, "w") as f:
@@ -94,5 +94,4 @@ def train_egarch(train_df, p=1, o=1, q=1):
     print(f"💾 Training stats saved to: {os.path.relpath(stats_path, PROJECT_ROOT)}")
     print("\n🎯 Training completed successfully — model ready for out-of-sample forecasting.")
 
-   
     return res, train_df, stats

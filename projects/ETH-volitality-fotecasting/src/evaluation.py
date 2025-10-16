@@ -37,7 +37,7 @@ def print_section(title: str):
 
 def load_out_of_sample():
     """Load the out-of-sample test data."""
-    test_path = os.path.join(PROJECT_ROOT, "candles", "out_of_sample_test.csv")  # 🛠 CHANGE: explicit candles path
+    test_path = os.path.join(PROJECT_ROOT, "candles", "out_of_sample_test.csv")
     if not os.path.exists(test_path):
         raise FileNotFoundError(f"❌ Out-of-sample CSV not found: {test_path}")
     
@@ -85,13 +85,12 @@ def forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=12):
     """
     print_section(f"Deterministic {horizon_steps}-Step-Ahead EGARCH Forecasting")
 
-    # 🛠 Build test features WITHOUT recomputing stats to avoid leakage
+    # 🧱 Build test features WITHOUT recomputing stats (log_return already scaled ×100)
     df_test, _, _, _ = build_features(df_test, rolling_window=ROLLING_WINDOW, compute_stats=False)
 
-    # 🛠 Sort chronologically just in case and reset index
     df_test = df_test.sort_values("open_time").reset_index(drop=True)
 
-    # 🛠 Count how many rows will be removed (incomplete rolling windows)
+    # 🧹 Trim incomplete rolling window region if necessary
     initial_len = len(df_test)
     if initial_len > ROLLING_WINDOW:
         df_test = df_test.iloc[ROLLING_WINDOW:].reset_index(drop=True)
@@ -99,11 +98,10 @@ def forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=12):
         print(f"🧹 Removed {removed} initial rows due to incomplete rolling windows.")
         print(f"📊 Remaining samples for evaluation: {len(df_test)} rows.\n")
     else:
-        print(f"⚠️ Not enough data for a full rolling window (len={initial_len}).")
-        print(f"Proceeding without trimming — results may be unstable.\n")
+        print(f"⚠️ Not enough data for a full rolling window (len={initial_len}). Proceeding anyway.\n")
 
-    # --- Prepare returns ---
-    test_returns = df_test["log_return"].dropna() * 100
+    # --- Use log_return directly from features (already ×100) ---
+    test_returns = df_test["log_return"].dropna().to_numpy()
     n_test = len(test_returns)
 
     # --- Use training statistics ---
@@ -137,21 +135,18 @@ def forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=12):
         for _ in range(horizon_steps):
             log_sigma2 = omega + beta * np.log(sigma_t ** 2) + alpha * (abs(z_t) - Ez) + gamma * z_t
             sigma_t = np.sqrt(np.exp(log_sigma2))
-            # deterministic path: assume z_t = 0 going forward
-            z_t = 0
+            z_t = 0  # deterministic path
 
         predicted_vol.append(sigma_t)
 
         # update last values for next iteration
         sigma_last = sigma_t
-        z_last = (test_returns.iloc[i] - mu) / sigma_t
+        z_last = (test_returns[i] - mu) / sigma_t
 
-        # 🛠 Print progress periodically
         if (i + 1) % max(1, n_test // 20) == 0 or (i + 1) == n_test:
             percent = (i + 1) / n_test * 100
             print(f" Progress: {i + 1:5d}/{n_test}  ({percent:5.1f}%)")
 
-    # --- Save forecast results ---
     df_test = df_test.iloc[-len(predicted_vol):].copy()
     df_test["predicted_vol"] = predicted_vol
 
@@ -161,7 +156,6 @@ def forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=12):
     return df_test
 
 
-
 # =====================================================================================
 # === Evaluation and Reporting
 # =====================================================================================
@@ -169,22 +163,12 @@ def forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=12):
 def hourly_volatility_evaluation(res, df):
     """
     Compare EGARCH predicted volatility vs realized volatility every 1 hour.
-    More granular than 3-day aggregation — preserves model's temporal detail.
     """
     print_section("Hourly Volatility Evaluation (Out-of-Sample)")
 
-    # --- Select volatility source ---
-    if "predicted_vol" in df.columns:
-        cond_var = df["predicted_vol"]
-    else:
-        cond_var = pd.Series(
-            res.conditional_volatility,
-            index=df.index[-len(res.conditional_volatility):]
-        ) * 100
+    cond_var = df["predicted_vol"]
+    realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std()
 
-    realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
-
-    # --- Align lengths ---
     n = min(len(df["open_time"]), len(cond_var), len(realized))
     tmp = pd.DataFrame({
         "open_time": df["open_time"].iloc[-n:],
@@ -192,7 +176,6 @@ def hourly_volatility_evaluation(res, df):
         "realized_vol": realized.iloc[-n:]
     }).dropna()
 
-    # --- 1-hour aggregation ---
     hourly = (
         tmp.set_index("open_time")
         .resample("1H")
@@ -200,7 +183,6 @@ def hourly_volatility_evaluation(res, df):
         .dropna()
     )
 
-    # --- Compute bias, abs diff, correlation ---
     hourly["bias"] = hourly["predicted_vol"] - hourly["realized_vol"]
     hourly["abs_diff"] = hourly["bias"].abs()
     hourly["corr"] = (
@@ -211,7 +193,6 @@ def hourly_volatility_evaluation(res, df):
         .to_numpy()
     )
 
-    # --- Print table ---
     print(f"{'Hour':<18}{'Bias':>10}{'AbsDiff':>12}{'Corr':>10}")
     print("-" * 55)
     for i, row in hourly.iterrows():
@@ -222,7 +203,6 @@ def hourly_volatility_evaluation(res, df):
             f"{row['corr']: >10.3f}"
         )
 
-    # --- Summary stats ---
     mean_bias = hourly["bias"].mean()
     mean_absdiff = hourly["abs_diff"].mean()
     mean_corr = hourly["corr"].mean()
@@ -253,7 +233,6 @@ def evaluate_egarch_out_of_sample(horizon_steps=12):
         save_path=os.path.join(PLOTS_DIR, f"egarch_out_of_sample_{horizon_steps}step.png")
     )
 
-    # 🛠 CHANGE: replaced 3-day with 1-hour evaluation
     print_section("Hourly Volatility Evaluation (Out-of-Sample)")
     hourly = hourly_volatility_evaluation(res, df_test)
 

@@ -1,4 +1,7 @@
-from src.config import * 
+from src.config import *
+from scipy.stats import kurtosis
+import numpy as np
+import pandas as pd
 
 def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=True):
     """
@@ -23,10 +26,8 @@ def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=T
         (DataFrame, None, None, None) otherwise
     """
 
-
     if sort and "open_time" in df.columns:
         df = df.sort_values("open_time").reset_index(drop=True)
-
 
     rolling_window = min(rolling_window, len(df))
 
@@ -65,16 +66,14 @@ def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=T
         .mean()
     )
 
-    # --- Log returns (stationarized prices) ---
-    df["log_return"] = np.log(df["close"] / df["close"].shift(1))
-
+    # --- Log returns (stationarized and scaled prices) ---
+    df["log_return"] = np.log(df["close"] / df["close"].shift(1)) * 100
 
     df["log_return"].replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(subset=["log_return"], inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-
-    # This avoids rolling stats that "see" beyond the available past (esp. in test data)
+    # --- Optional trimming to avoid forward-looking windows ---
     if len(df) > rolling_window:
         df = df.iloc[rolling_window:].reset_index(drop=True)
 
@@ -87,9 +86,7 @@ def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=T
         if kurt > 30:
             print(f"⚠️ Extreme leptokurtosis detected (kurtosis={kurt:.2f}) — heavy tails expected.")
         print(f"μ={mu:.6f}, σ={sigma:.6f}, kurtosis={kurt:.3f}")
-
     else:
-
         mu, sigma, kurt = None, None, None
 
     # ✅ Return clean, chronologically correct, leakage-free features
