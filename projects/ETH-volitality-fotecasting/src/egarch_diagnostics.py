@@ -10,19 +10,17 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from scipy.stats import jarque_bera, probplot
 from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
+import pickle
 
 # === Path setup ===
-# Ensures imports work when running directly from /src/
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, ".."))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
 # === Local imports ===
-# === Local imports ===
-from src.config import *                   # global paths and constants
-from src.data_loader import load_eth_data  # load CSV data
-from src.egarch_model import train_egarch  # model training pipeline
+from src.config import *                   
+from src.data_loader import load_eth_data   
 
 
 # ============================================================
@@ -36,15 +34,15 @@ def print_section(title: str):
 
 
 # ============================================================
-# Core Diagnostic Function
+# Core Diagnostic Functions
 # ============================================================
+
 def plot_conditional_variance(res, df, save_path=None):
     """Plot conditional variance (EGARCH output or forecast) vs realized volatility."""
     print_section("Plotting Conditional Variance")
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    # Use forecasted volatility if present
     if "predicted_vol" in df.columns:
         cond_var = df["predicted_vol"]
         label_pred = "Predicted Volatility (Forecast)"
@@ -54,7 +52,6 @@ def plot_conditional_variance(res, df, save_path=None):
 
     realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
 
-    # align lengths safely
     n = min(len(df["open_time"]), len(cond_var), len(realized))
     x = df["open_time"].iloc[-n:]
     y1 = cond_var.iloc[-n:]
@@ -84,7 +81,6 @@ def weekly_volatility_comparison(res, df):
     """
     print_section("Weekly Volatility Comparison Table")
 
-    # --- Determine which volatility source to use ---
     if "predicted_vol" in df.columns:
         cond_var = df["predicted_vol"]
     else:
@@ -92,7 +88,6 @@ def weekly_volatility_comparison(res, df):
 
     realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
 
-    # --- Align lengths ---
     n = min(len(df["open_time"]), len(cond_var), len(realized))
     tmp = pd.DataFrame({
         "open_time": df["open_time"].iloc[-n:],
@@ -100,7 +95,6 @@ def weekly_volatility_comparison(res, df):
         "realized_vol": realized.iloc[-n:]
     }).dropna()
 
-    # --- Weekly aggregation ---
     weekly = (
         tmp.set_index("open_time")
         .resample("W")
@@ -117,7 +111,6 @@ def weekly_volatility_comparison(res, df):
         .to_numpy()
     )
 
-    # --- Print summary table ---
     print(f"{'Week':<12}{'Predicted':>12}{'Realized':>12}{'AbsDiff':>12}{'Corr':>10}")
     print("-" * 58)
     for i, row in weekly.iterrows():
@@ -142,20 +135,6 @@ def weekly_volatility_comparison(res, df):
 def egarch_residual_diagnostics(res, lags=20, save_plots=True):
     """
     Perform comprehensive statistical diagnostics on EGARCH residuals.
-
-    Parameters
-    ----------
-    res : arch.univariate.base.ARCHModelResult
-        Fitted EGARCH model result object.
-    lags : int
-        Number of lags used in ACF and Ljung–Box tests.
-    save_plots : bool
-        Whether to save diagnostic plots to /plots/.
-
-    Returns
-    -------
-    dict
-        Diagnostic results including p-values and distribution moments.
     """
     print_section("Extracting Standardized Residuals")
     residuals = res.std_resid.dropna()
@@ -165,29 +144,20 @@ def egarch_residual_diagnostics(res, lags=20, save_plots=True):
     print(f"Mean (≈ 0): {residuals.mean():.6f}")
     print(f"Variance (≈ 1): {residuals.var():.6f}")
 
-    # ========================================================
-    # 1. Ljung–Box test (autocorrelation)
-    # ========================================================
+    # 1. Ljung–Box test
     print_section("Ljung–Box Test for Autocorrelation")
     lb_test = acorr_ljungbox(residuals, lags=[lags], return_df=True)
     print(lb_test)
     lb_p = lb_test['lb_pvalue'].values[-1]
 
-    # ========================================================
-    # 2. ARCH-LM test (remaining heteroskedasticity)
-    # ========================================================
+    # 2. ARCH-LM test
     print_section("ARCH-LM Test for Conditional Heteroskedasticity")
     arch_stat, arch_p, _, _ = het_arch(residuals)
     print(f"ARCH-LM statistic = {arch_stat:.4f}, p-value = {arch_p:.4f}")
 
-    # ========================================================
-    # 3. Jarque–Bera test (normality)
-    # ========================================================
+    # 3. Jarque–Bera test
     print_section("Jarque–Bera Test for Normality")
-
     jb_result = jarque_bera(residuals)
-
-    # Handle old/new SciPy return format
     if isinstance(jb_result, tuple) and len(jb_result) == 4:
         jb_stat, jb_p, skew, kurt = jb_result
     else:
@@ -198,37 +168,29 @@ def egarch_residual_diagnostics(res, lags=20, save_plots=True):
     print(f"JB statistic = {jb_stat:.4f}, p-value = {jb_p:.4f}")
     print(f"Skewness = {skew:.4f}, Kurtosis = {kurt:.4f}")
 
-    # ========================================================
-    # 4. Plots
-    # ========================================================
+    # 4. Diagnostic Plots
     print_section("Generating Diagnostic Plots")
     fig, axes = plt.subplots(3, 2, figsize=(12, 10))
 
-    # (1) Standardized residuals
     axes[0, 0].plot(residuals, color="slateblue", lw=0.8)
     axes[0, 0].set_title("Standardized Residuals over Time")
 
-    # (2) Conditional volatility
     axes[0, 1].plot(cond_vol, color="darkorange", lw=0.8)
     axes[0, 1].set_title("Conditional Volatility (EGARCH Output)")
 
-    # (3) Histogram
     axes[1, 0].hist(residuals, bins=50, color="steelblue", alpha=0.7)
     axes[1, 0].set_title("Histogram of Standardized Residuals")
 
-    # (4) QQ Plot
     try:
         df_t = res.distribution.df
     except AttributeError:
-        df_t = 10  # fallback if t-dist not used
+        df_t = 10
     probplot(residuals, dist="t", sparams=(df_t,), plot=axes[1, 1])
     axes[1, 1].set_title(f"QQ Plot vs Student-t (df={df_t:.1f})")
 
-    # (5) ACF of residuals
     sm.graphics.tsa.plot_acf(residuals, lags=lags, ax=axes[2, 0])
     axes[2, 0].set_title("ACF of Standardized Residuals")
 
-    # (6) ACF of squared residuals
     sm.graphics.tsa.plot_acf(residuals**2, lags=lags, ax=axes[2, 1])
     axes[2, 1].set_title("ACF of Squared Residuals")
 
@@ -239,9 +201,7 @@ def egarch_residual_diagnostics(res, lags=20, save_plots=True):
         print(f"📈 Diagnostic plots saved to {save_path}")
     plt.show()
 
-    # ========================================================
-    # Summary
-    # ========================================================
+    # 5. Summary
     results = {
         "Ljung_Box_p": float(lb_p),
         "ARCH_LM_p": float(arch_p),
@@ -258,14 +218,30 @@ def egarch_residual_diagnostics(res, lags=20, save_plots=True):
 
 
 # ============================================================
-# Optional CLI Execution
+# CLI Execution (no retraining)
 # ============================================================
-
 if __name__ == "__main__":
-    print_section("Loading Data and Training EGARCH Model")
-    df = load_eth_data()
-    res, df = train_egarch(df, p=EGARCH_P, o=EGARCH_O, q=EGARCH_Q)
+    print_section("Loading Existing EGARCH Model and Training Data")
+
+    
+    model_path = os.path.join(PROJECT_ROOT, "data", "egarch_model.pkl")
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"❌ Trained model not found: {model_path}")
+
+    with open(model_path, "rb") as f:
+        res = pickle.load(f)
+    print(f"✅ Loaded trained EGARCH model from {model_path}")
+
+    
+    train_path = os.path.join(PROJECT_ROOT, "candles", "train_sample.csv")
+    if not os.path.exists(train_path):
+        raise FileNotFoundError(f"❌ Training data not found: {train_path}")
+
+    df = pd.read_csv(train_path)
+    df["open_time"] = pd.to_datetime(df["open_time"])
+    df = df.sort_values("open_time").reset_index(drop=True)
+    print(f"✅ Loaded training data ({df.shape[0]} rows)")
 
     print_section("Running Full Residual Diagnostics")
     diagnostics = egarch_residual_diagnostics(res, lags=20, save_plots=True)
-    print("\n✅ Diagnostics completed.")
+    print("\n✅ Diagnostics completed successfully.")

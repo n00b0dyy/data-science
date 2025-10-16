@@ -2,6 +2,7 @@
 import os
 import sys
 import pickle
+import json
 import numpy as np
 import pandas as pd
 from arch import arch_model
@@ -30,21 +31,26 @@ def print_section(title: str):
     print(f"\n{line}\n{title.center(70)}\n{line}\n")
 
 
+# =====================================================================================
+# === Data and Model Loaders
+# =====================================================================================
+
 def load_out_of_sample():
     """Load the out-of-sample test data."""
-    test_path = os.path.join(DATA_DIR, "out_of_sample_test.csv")
+    test_path = os.path.join(PROJECT_ROOT, "candles", "out_of_sample_test.csv")  # 🛠 CHANGE: explicit candles path
     if not os.path.exists(test_path):
         raise FileNotFoundError(f"❌ Out-of-sample CSV not found: {test_path}")
     
     df = pd.read_csv(test_path)
     df["open_time"] = pd.to_datetime(df["open_time"])
+    df = df.sort_values("open_time").reset_index(drop=True)
     print(f"✅ Loaded out-of-sample data ({df.shape[0]} rows)")
     return df
 
 
 def load_trained_model():
     """Load the saved EGARCH model results object."""
-    model_path = os.path.join(project_root, "data", "egarch_model.pkl")
+    model_path = os.path.join(PROJECT_ROOT, "data", "egarch_model.pkl")
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"❌ Trained model not found at: {model_path}")
     
@@ -55,26 +61,63 @@ def load_trained_model():
     return res
 
 
-def forecast_egarch_out_of_sample(res, df_test, horizon_steps=12):
+def load_train_stats():
+    """Load training statistics (μ, σ, kurtosis) computed during training."""
+    stats_path = os.path.join(PROJECT_ROOT, "data", "train_stats.json")
+    if not os.path.exists(stats_path):
+        raise FileNotFoundError(f"❌ Training statistics file not found: {stats_path}")
+    
+    with open(stats_path, "r") as f:
+        stats = json.load(f)
+    print(f"✅ Loaded training statistics from {stats_path}")
+    return stats
+
+
+# =====================================================================================
+# === Forecasting Logic
+# =====================================================================================
+
+def forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=12):
     """
     Deterministic multi-step-ahead volatility forecasting for EGARCH(1,1).
     Uses recursive propagation of the conditional variance equation.
+    Ensures no look-ahead bias by using only training-derived statistics.
     """
     print_section(f"Deterministic {horizon_steps}-Step-Ahead EGARCH Forecasting")
 
-    # 1️⃣ Prepare test data
-    df_test, mu, sigma, kurt = build_features(df_test, rolling_window=ROLLING_WINDOW)
+    # 🛠 Build test features WITHOUT recomputing stats to avoid leakage
+    df_test, _, _, _ = build_features(df_test, rolling_window=ROLLING_WINDOW, compute_stats=False)
+
+    # 🛠 Sort chronologically just in case and reset index
+    df_test = df_test.sort_values("open_time").reset_index(drop=True)
+
+    # 🛠 Count how many rows will be removed (incomplete rolling windows)
+    initial_len = len(df_test)
+    if initial_len > ROLLING_WINDOW:
+        df_test = df_test.iloc[ROLLING_WINDOW:].reset_index(drop=True)
+        removed = initial_len - len(df_test)
+        print(f"🧹 Removed {removed} initial rows due to incomplete rolling windows.")
+        print(f"📊 Remaining samples for evaluation: {len(df_test)} rows.\n")
+    else:
+        print(f"⚠️ Not enough data for a full rolling window (len={initial_len}).")
+        print(f"Proceeding without trimming — results may be unstable.\n")
+
+    # --- Prepare returns ---
     test_returns = df_test["log_return"].dropna() * 100
     n_test = len(test_returns)
 
-    # 2️⃣ Extract trained parameters
+    # --- Use training statistics ---
+    mu = train_stats["mu"]
+    sigma = train_stats["sigma"]
+
+    # --- Extract trained EGARCH parameters ---
     params = res.params
     omega = params.get("omega", params[0])
     alpha = params.get("alpha[1]", params.get("alpha", 0))
     gamma = params.get("gamma[1]", params.get("gamma", 0))
     beta  = params.get("beta[1]", params.get("beta", 0))
 
-    # 3️⃣ Last known volatility and residuals from training
+    # --- Last known volatility and residuals from training ---
     sigma_last = res.conditional_volatility.iloc[-1]
     z_last = res.std_resid.iloc[-1]
 
@@ -85,7 +128,7 @@ def forecast_egarch_out_of_sample(res, df_test, horizon_steps=12):
 
     predicted_vol = []
 
-    # 4️⃣ Rolling deterministic forecast loop
+    # --- Rolling deterministic forecast loop ---
     for i in range(n_test):
         sigma_t = sigma_last
         z_t = z_last
@@ -94,7 +137,7 @@ def forecast_egarch_out_of_sample(res, df_test, horizon_steps=12):
         for _ in range(horizon_steps):
             log_sigma2 = omega + beta * np.log(sigma_t ** 2) + alpha * (abs(z_t) - Ez) + gamma * z_t
             sigma_t = np.sqrt(np.exp(log_sigma2))
-            # for deterministic path: assume z_t = 0 going forward
+            # deterministic path: assume z_t = 0 going forward
             z_t = 0
 
         predicted_vol.append(sigma_t)
@@ -103,22 +146,30 @@ def forecast_egarch_out_of_sample(res, df_test, horizon_steps=12):
         sigma_last = sigma_t
         z_last = (test_returns.iloc[i] - mu) / sigma_t
 
-        # progress print
+        # 🛠 Print progress periodically
         if (i + 1) % max(1, n_test // 20) == 0 or (i + 1) == n_test:
             percent = (i + 1) / n_test * 100
             print(f" Progress: {i + 1:5d}/{n_test}  ({percent:5.1f}%)")
 
-    # 5️⃣ Save to DataFrame
+    # --- Save forecast results ---
     df_test = df_test.iloc[-len(predicted_vol):].copy()
     df_test["predicted_vol"] = predicted_vol
-    print(f"\n✅ Deterministic {horizon_steps}-step forecasts completed ({len(predicted_vol)} points).")
+
+    print(f"\n✅ Deterministic {horizon_steps}-step forecasts completed.")
+    print(f"📈 Total evaluated samples: {len(df_test)} rows.\n")
 
     return df_test
 
+
+
+# =====================================================================================
+# === Evaluation and Reporting
+# =====================================================================================
+
 def three_day_volatility_comparison(res, df):
     """
-    Compare EGARCH predicted volatility vs realized volatility every 3 days
-    for out-of-sample evaluation.
+    Compare EGARCH predicted volatility vs realized volatility every 3 days.
+    This function remains unchanged but relies on clean test input.
     """
     print_section("3-Day Volatility Comparison Table (Out-of-Sample)")
 
@@ -136,7 +187,6 @@ def three_day_volatility_comparison(res, df):
         "realized_vol": realized.iloc[-n:]
     }).dropna()
 
-    # --- 3-day aggregation ---
     three_day = (
         tmp.set_index("open_time")
         .resample("3D")
@@ -153,7 +203,6 @@ def three_day_volatility_comparison(res, df):
         .to_numpy()
     )
 
-    # --- Print nicely ---
     print(f"{'Period':<14}{'Predicted':>12}{'Realized':>12}{'AbsDiff':>12}{'Corr':>10}")
     print("-" * 60)
     for i, row in three_day.iterrows():
@@ -177,27 +226,30 @@ def three_day_volatility_comparison(res, df):
 
 def evaluate_egarch_out_of_sample(horizon_steps=12):
     """Evaluate EGARCH model performance on unseen data."""
-    print_section("Loading Model and Out-of-Sample Data")
+    print_section("Loading Model, Training Stats and Out-of-Sample Data")
+
+    # 🛠 CHANGE: load model, stats and test data separately
     res = load_trained_model()
-    df = load_out_of_sample()
+    train_stats = load_train_stats()
+    df_test = load_out_of_sample()
 
     print_section(f"Starting Forecasting (horizon={horizon_steps} steps)")
-    df = forecast_egarch_out_of_sample(res, df, horizon_steps=horizon_steps)
+    df_test = forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=horizon_steps)
 
     print_section("Plotting EGARCH vs Realized Volatility (Out-of-Sample)")
     plot_conditional_variance(
         res,
-        df,
+        df_test,
         save_path=os.path.join(PLOTS_DIR, f"egarch_out_of_sample_{horizon_steps}step.png")
     )
 
     print_section("3-Day Volatility Comparison (Out-of-Sample)")
-    three_day = three_day_volatility_comparison(res, df)
-
+    three_day = three_day_volatility_comparison(res, df_test)
 
     print_section("Evaluation Completed")
     print(f"✅ Out-of-sample evaluation finished successfully for horizon={horizon_steps}.\n")
     return three_day
+
 
 # === CLI Execution ===
 if __name__ == "__main__":
