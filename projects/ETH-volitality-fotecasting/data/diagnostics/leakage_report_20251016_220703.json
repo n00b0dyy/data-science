@@ -1,0 +1,29 @@
+{
+    "timestamp": "2025-10-16 22:07:03",
+    "tests": {
+        "temporal_integrity": {
+            "train_end": "2024-02-29 23:55:00",
+            "test_start": "2024-03-01 04:05:00",
+            "result": "pass"
+        },
+        "feature_stats": {
+            "mu_train": 0.01820612557962076,
+            "mu_test": 0.0015774809687065974,
+            "sigma_train": 0.22294099988724111,
+            "sigma_test": 0.21718527596464954,
+            "result": "pass"
+        },
+        "realized_vol": {
+            "diff_sum": 0.0,
+            "result": "pass"
+        },
+        "shuffle_sanity": {
+            "corr_true": 0.41721394103511955,
+            "corr_shuffled": 0.4172139410351195,
+            "result": "warning"
+        }
+    },
+    "summary": {
+        "status": "pass"
+    }
+}

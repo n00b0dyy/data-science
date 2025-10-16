@@ -24,13 +24,13 @@ for path in [PLOTS_DIR, LOG_DIR]:
 DATA_PATH = os.path.join(DATA_DIR, "train_sample.csv")
 
 # --- Rolling Configuration ---
-ROLLING_WINDOW = 12 # (5m interval: number 5 means 25 minutes, number 12 means 60 minutes, can adjust)
+ROLLING_WINDOW = 48 # (5m interval: number 5 means 25 minutes, number 12 means 60 minutes, can adjust)
 
 # --- EGARCH Model Defaults ---
 EGARCH_P = 1
 EGARCH_O = 1
 EGARCH_Q = 1
-DISTRIBUTION = "t"
+DISTRIBUTION = "skewt"
 
 # --- Global Print Info ---
 print(f"[config] Project root: {PROJECT_ROOT}")
