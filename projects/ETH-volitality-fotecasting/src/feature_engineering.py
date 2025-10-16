@@ -23,11 +23,11 @@ def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=T
         (DataFrame, None, None, None) otherwise
     """
 
-    # 🛠 CHANGE: sort chronologically to ensure rolling windows are backward-looking
+
     if sort and "open_time" in df.columns:
         df = df.sort_values("open_time").reset_index(drop=True)
 
-    # 🛠 CHANGE: make sure we don't accidentally use larger window than data length
+
     rolling_window = min(rolling_window, len(df))
 
     # --- Core basic features ---
@@ -57,7 +57,6 @@ def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=T
     )
 
     # --- Exponentially weighted features (causal form) ---
-    # 🛠 CHANGE: adjust=False ensures purely backward recursive weighting (no look-ahead)
     ewm_span = max(10, rolling_window // 10)
     df["ewm_volume"] = df["log_volume"].ewm(span=ewm_span, adjust=False).mean()
     df["ewm_mad"] = (
@@ -69,12 +68,12 @@ def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=T
     # --- Log returns (stationarized prices) ---
     df["log_return"] = np.log(df["close"] / df["close"].shift(1))
 
-    # 🛠 CHANGE: sanitize NaNs and infinities carefully
+
     df["log_return"].replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(subset=["log_return"], inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-    # 🛠 CHANGE: remove first rolling_window rows to prevent window contamination
+
     # This avoids rolling stats that "see" beyond the available past (esp. in test data)
     if len(df) > rolling_window:
         df = df.iloc[rolling_window:].reset_index(drop=True)
@@ -90,7 +89,7 @@ def build_features(df, rolling_window=ROLLING_WINDOW, sort=True, compute_stats=T
         print(f"μ={mu:.6f}, σ={sigma:.6f}, kurtosis={kurt:.3f}")
 
     else:
-        # 🛠 CHANGE: when used in evaluation/test mode, don't compute global stats
+
         mu, sigma, kurt = None, None, None
 
     # ✅ Return clean, chronologically correct, leakage-free features
