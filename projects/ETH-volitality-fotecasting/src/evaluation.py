@@ -166,20 +166,25 @@ def forecast_egarch_out_of_sample(res, df_test, train_stats, horizon_steps=12):
 # === Evaluation and Reporting
 # =====================================================================================
 
-def three_day_volatility_comparison(res, df):
+def hourly_volatility_evaluation(res, df):
     """
-    Compare EGARCH predicted volatility vs realized volatility every 3 days.
-    This function remains unchanged but relies on clean test input.
+    Compare EGARCH predicted volatility vs realized volatility every 1 hour.
+    More granular than 3-day aggregation — preserves model's temporal detail.
     """
-    print_section("3-Day Volatility Comparison Table (Out-of-Sample)")
+    print_section("Hourly Volatility Evaluation (Out-of-Sample)")
 
+    # --- Select volatility source ---
     if "predicted_vol" in df.columns:
         cond_var = df["predicted_vol"]
     else:
-        cond_var = pd.Series(res.conditional_volatility, index=df.index[-len(res.conditional_volatility):]) * 100
+        cond_var = pd.Series(
+            res.conditional_volatility,
+            index=df.index[-len(res.conditional_volatility):]
+        ) * 100
 
     realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
 
+    # --- Align lengths ---
     n = min(len(df["open_time"]), len(cond_var), len(realized))
     tmp = pd.DataFrame({
         "open_time": df["open_time"].iloc[-n:],
@@ -187,48 +192,53 @@ def three_day_volatility_comparison(res, df):
         "realized_vol": realized.iloc[-n:]
     }).dropna()
 
-    three_day = (
+    # --- 1-hour aggregation ---
+    hourly = (
         tmp.set_index("open_time")
-        .resample("3D")
+        .resample("1H")
         .agg({"predicted_vol": "mean", "realized_vol": "mean"})
         .dropna()
     )
 
-    three_day["diff_abs"] = (three_day["predicted_vol"] - three_day["realized_vol"]).abs()
-    three_day["corr"] = (
+    # --- Compute bias, abs diff, correlation ---
+    hourly["bias"] = hourly["predicted_vol"] - hourly["realized_vol"]
+    hourly["abs_diff"] = hourly["bias"].abs()
+    hourly["corr"] = (
         tmp.set_index("open_time")
-        .resample("3D")[["predicted_vol", "realized_vol"]]
+        .resample("1H")[["predicted_vol", "realized_vol"]]
         .corr()
         .iloc[0::2, -1]
         .to_numpy()
     )
 
-    print(f"{'Period':<14}{'Predicted':>12}{'Realized':>12}{'AbsDiff':>12}{'Corr':>10}")
-    print("-" * 60)
-    for i, row in three_day.iterrows():
+    # --- Print table ---
+    print(f"{'Hour':<18}{'Bias':>10}{'AbsDiff':>12}{'Corr':>10}")
+    print("-" * 55)
+    for i, row in hourly.iterrows():
         print(
-            f"{i.strftime('%Y-%m-%d'): <14}"
-            f"{row['predicted_vol']: >12.3f}"
-            f"{row['realized_vol']: >12.3f}"
-            f"{row['diff_abs']: >12.3f}"
+            f"{i.strftime('%Y-%m-%d %H:%M'): <18}"
+            f"{row['bias']: >10.3f}"
+            f"{row['abs_diff']: >12.3f}"
             f"{row['corr']: >10.3f}"
         )
 
-    mean_corr = three_day["corr"].mean()
-    mean_diff = three_day["diff_abs"].mean()
+    # --- Summary stats ---
+    mean_bias = hourly["bias"].mean()
+    mean_absdiff = hourly["abs_diff"].mean()
+    mean_corr = hourly["corr"].mean()
 
-    print("\nAverages across 3-day periods:")
+    print("\nAverages across 1-hour windows:")
+    print(f" Mean bias          : {mean_bias:.3f}")
+    print(f" Mean abs. diff (%) : {mean_absdiff:.3f}")
     print(f" Mean correlation   : {mean_corr:.3f}")
-    print(f" Mean abs. diff (%) : {mean_diff:.3f}")
 
-    return three_day
+    return hourly
 
 
 def evaluate_egarch_out_of_sample(horizon_steps=12):
     """Evaluate EGARCH model performance on unseen data."""
     print_section("Loading Model, Training Stats and Out-of-Sample Data")
 
-    # 🛠 CHANGE: load model, stats and test data separately
     res = load_trained_model()
     train_stats = load_train_stats()
     df_test = load_out_of_sample()
@@ -243,12 +253,13 @@ def evaluate_egarch_out_of_sample(horizon_steps=12):
         save_path=os.path.join(PLOTS_DIR, f"egarch_out_of_sample_{horizon_steps}step.png")
     )
 
-    print_section("3-Day Volatility Comparison (Out-of-Sample)")
-    three_day = three_day_volatility_comparison(res, df_test)
+    # 🛠 CHANGE: replaced 3-day with 1-hour evaluation
+    print_section("Hourly Volatility Evaluation (Out-of-Sample)")
+    hourly = hourly_volatility_evaluation(res, df_test)
 
     print_section("Evaluation Completed")
     print(f"✅ Out-of-sample evaluation finished successfully for horizon={horizon_steps}.\n")
-    return three_day
+    return hourly
 
 
 # === CLI Execution ===

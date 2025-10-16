@@ -49,7 +49,7 @@ def train_egarch(train_df, p=1, o=1, q=1):
         raise ValueError(f"❌ {missing} NaN values found in 'log_return'. Training aborted.")
 
     # --- Summary of inputs ---
-    returns = train_df["log_return"] * 100
+    returns = train_df["log_return"] * 1000
     print_section("Model Input Summary")
     print(f" Observations : {len(returns):>10}")
     print(f" Mean          : {mu:>10.6f}")

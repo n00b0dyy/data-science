@@ -38,11 +38,17 @@ def print_section(title: str):
 # ============================================================
 
 def plot_conditional_variance(res, df, save_path=None):
-    """Plot conditional variance (EGARCH output or forecast) vs realized volatility."""
+    """
+    Plot conditional variance (EGARCH output or forecast) vs realized volatility.
+
+    Now includes hourly resampling for visualization clarity.
+    This prevents visual overcrowding from high-frequency (e.g., 5-min) data.
+    """
     print_section("Plotting Conditional Variance")
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
+    # --- Determine which volatility source to plot ---
     if "predicted_vol" in df.columns:
         cond_var = df["predicted_vol"]
         label_pred = "Predicted Volatility (Forecast)"
@@ -50,27 +56,49 @@ def plot_conditional_variance(res, df, save_path=None):
         cond_var = res.conditional_volatility
         label_pred = "Predicted Volatility (In-Sample EGARCH)"
 
+    # --- Compute realized volatility from log returns ---
     realized = df["log_return"].rolling(window=min(len(df), ROLLING_WINDOW)).std() * 100
 
+    # --- Align lengths ---
     n = min(len(df["open_time"]), len(cond_var), len(realized))
-    x = df["open_time"].iloc[-n:]
-    y1 = cond_var.iloc[-n:]
-    y2 = realized.iloc[-n:]
+    tmp = pd.DataFrame({
+        "open_time": df["open_time"].iloc[-n:],
+        "predicted_vol": cond_var.iloc[-n:],
+        "realized_vol": realized.iloc[-n:]
+    }).dropna()
 
-    ax.plot(x, y1, label=label_pred, color="orange", lw=1.2)
-    ax.plot(x, y2, label="Realized Volatility (Rolling Std)", color="steelblue", alpha=0.7)
+    # 🛠 RESAMPLING STEP — aggregate both volatility series hourly for visualization
+    tmp = (
+        tmp.set_index("open_time")
+        .resample("1H")
+        .mean()
+        .dropna()
+    )
 
-    ax.set_title("Conditional Volatility — EGARCH(1,1)", fontsize=12)
+    # --- Extract resampled data for plotting ---
+    x = tmp.index
+    y1 = tmp["predicted_vol"]
+    y2 = tmp["realized_vol"]
+
+    # --- Plot hourly-aggregated volatility ---
+    ax.plot(x, y1, label=label_pred, color="orange", lw=1.4)
+    ax.plot(x, y2, label="Realized Volatility (Rolling Std)", color="steelblue", lw=1.2, alpha=0.8)
+
+    # --- Format plot ---
+    ax.set_title("Conditional Volatility — EGARCH(1,1) [Hourly View]", fontsize=12)
     ax.set_xlabel("Time")
     ax.set_ylabel("Volatility (%)")
     ax.legend()
+    ax.grid(alpha=0.3)
     plt.tight_layout()
 
+    # --- Save figure if path specified ---
     if save_path:
         plt.savefig(save_path, dpi=300)
         print(f"📈 Plot saved to {os.path.relpath(save_path, PROJECT_ROOT)}")
 
     plt.show()
+
 
 
 def weekly_volatility_comparison(res, df):
