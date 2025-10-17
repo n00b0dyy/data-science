@@ -1,3 +1,4 @@
+
 # ===========================================
 # src/egarch_model.py
 # -------------------------------------------
@@ -46,22 +47,26 @@ def fit_egarch(
     return fitted, scale
 
 
-
-
-def save_model(fitted_model, filename: str = "egarch_model.pkl"):
+def save_model(fitted_model, scale: float, filename: str = "egarch_model.pkl"):
+    """
+    Zapisuje wytrenowany model EGARCH oraz współczynnik skalowania do pliku .pkl.
+    Dzięki temu evaluation.py nie musi ponownie liczyć std(train).
+    """
     path = LOGS_DIR / filename
+    payload = {"model": fitted_model, "scale": scale}
     with open(path, "wb") as f:
-        pickle.dump(fitted_model, f)
-    print(f"💾 Zapisano model do pliku: {path}")
+        pickle.dump(payload, f)
+    print(f"💾 Zapisano model i scale do pliku: {path}")
     return path
 
 
 # ===========================================
-# Szybki test standalone
+# Szybki test standalone (tylko train)
 # ===========================================
 if __name__ == "__main__":
     from src.data_loader import load_train_test_data
 
-    train_df, test_df = load_train_test_data()
+    # wczytujemy wyłącznie dane treningowe, bez testu
+    train_df = load_train_test_data(load_test=False)
     model, scale = fit_egarch(train_df["log_return"])
-    save_model(model, "egarch_ETH_5m.pkl")
+    save_model(model, scale, "egarch_ETH_5m.pkl")
