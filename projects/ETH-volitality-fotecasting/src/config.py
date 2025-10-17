@@ -1,40 +1,36 @@
-# === Global Configuration for ETH Volatility Forecasting ===
+# src/config.py
+
+from pathlib import Path
 import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy import stats
-from scipy.stats import norm, kurtosis, shapiro, normaltest, anderson
 
-# --- Project Path Configuration ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))              # src/
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))       # project root
+# === ROOT PATH ===
+# automatyczne wykrycie głównego katalogu repozytorium
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
-DATA_DIR = os.path.join(PROJECT_ROOT, "candles")
-PLOTS_DIR = os.path.join(PROJECT_ROOT, "plots")
-LOG_DIR = os.path.join(PROJECT_ROOT, "logs")
+# === FOLDERS ===
+DATA_DIR = ROOT_DIR / "candles"
+RAW_DATA_DIR = ROOT_DIR / "data" / "raw"
+INTERIM_DATA_DIR = ROOT_DIR / "data" / "interim"
+PROCESSED_DATA_DIR = ROOT_DIR / "data" / "processed"
 
-# Create folders if missing
-for path in [PLOTS_DIR, LOG_DIR]:
-    if not os.path.exists(path):
-        os.makedirs(path)
+NOTEBOOKS_DIR = ROOT_DIR / "notebooks"
+LOGS_DIR = ROOT_DIR / "logs"
+PLOTS_DIR = ROOT_DIR / "plots"
+SRC_DIR = ROOT_DIR / "src"
 
-# --- Data Paths ---
-DATA_PATH = os.path.join(DATA_DIR, "train_sample.csv")
+# === FILES ===
+TRAIN_FILE = DATA_DIR / "train_sample_clean.csv"
+TEST_FILE = DATA_DIR / "out_of_sample_test_clean.csv"
 
-# --- Rolling Configuration ---
-ROLLING_WINDOW = 48 # (5m interval: number 5 means 25 minutes, number 12 means 60 minutes, can adjust)
+# === RANDOMNESS & SEED ===
+RANDOM_SEED = 42
 
-# --- EGARCH Model Defaults ---
-EGARCH_P = 1
-EGARCH_O = 1
-EGARCH_Q = 1
-DISTRIBUTION = "skewt"
+# === LOGGING ===
+LOG_FILE = LOGS_DIR / "pipeline.log"
 
-# --- Global Print Info ---
-print(f"[config] Project root: {PROJECT_ROOT}")
-print(f"[config] Data path: {DATA_PATH}")
-print(f"[config] Plots directory: {PLOTS_DIR}")
-print(f"[config] Logs directory: {LOG_DIR}")
-print(f"[config] Default EGARCH params -> p={EGARCH_P}, o={EGARCH_O}, q={EGARCH_Q}, dist={DISTRIBUTION}")
+# === RUNTIME FLAGS ===
+DEBUG = False
+
+# Upewnij się, że katalogi istnieją
+for d in [LOGS_DIR, PLOTS_DIR, RAW_DATA_DIR, INTERIM_DATA_DIR, PROCESSED_DATA_DIR]:
+    os.makedirs(d, exist_ok=True)
