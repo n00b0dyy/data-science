@@ -9,11 +9,19 @@ from src.data_loader import load_train_test_data
 from src.config import LOGS_DIR
 
 
-def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 500, batch_size: int = 20):
+def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl",
+                    n_obs: int = 500,
+                    batch_size: int = 20,
+                    window_size: int = 600,
+                    scale_window: int = 1000):
+    """
+    Ewaluacja EGARCH z rolling sliding window (nigdy nie widzi przyszłości).
+    Rolling scale (lokalne std) dodane dla adaptacji do zmian reżimu zmienności.
+    """
     print(f"📂 Wczytuję model z {model_filename}...")
     payload = pickle.load(open(LOGS_DIR / model_filename, "rb"))
     fitted = payload["model"]
-    scale = payload["scale"]
+    base_scale = payload["scale"]  # tylko do pierwszej normalizacji
 
     # --- Wczytanie danych testowych ---
     print("📈 Wczytuję dane testowe...")
@@ -23,13 +31,13 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
         test_df = test_df.head(n_obs).reset_index(drop=True)
         print(f"📏 Używam tylko pierwszych {n_obs} świeczek z testu.")
     else:
-        print(f"⚠️ Test ma mniej niż {n_obs} świeczek ({len(test_df)}). Używam całości.")
+        print(f"⚠️ Test ma mniej niż {n_obs} świeczek ({len(test_df)}). Użaywam całości.")
 
-    # --- Standaryzacja ---
-    test_returns_std = test_df["log_return"] / scale
+    # --- Standaryzacja testu tym samym współczynnikiem co train ---
+    test_returns_std = test_df["log_return"] / base_scale
 
-    # --- Rolling forecast (batch refit co batch_size) ---
-    print(f"🔮 Rolling forecast wariancji (batch co {batch_size})...")
+    # --- Rolling forecast ---
+    print(f"🔮 Rolling forecast wariancji (batch co {batch_size}, sliding window={window_size}, scale={scale_window})...")
     model = fitted.model
     params = fitted.params
     vol = model.volatility
@@ -37,13 +45,30 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
 
     forecasts = []
     param_history = []
-    res = None  # ostatni dopasowany model (używany między refitami)
+    res = None
+
+    train_y = fitted.model._y
+    total_series = np.concatenate([train_y, test_returns_std.values])
+    offset = len(train_y)
 
     for i in range(len(test_returns_std)):
         if i % batch_size == 0 or res is None:
-            subseries = np.concatenate([fitted.model._y, test_returns_std.values[:i]])
+            # --- SLIDING WINDOW: tylko przeszłość (do i) ---
+            end = offset + i
+            start = max(0, end - window_size)
+            subseries = total_series[start:end]
+
+            # --- NOWE: Rolling scale ---
+            # Liczymy lokalne std z ostatnich scale_window obserwacji
+            # (jeśli jeszcze nie ma wystarczająco wielu punktów, bierzemy wszystko)
+            available_len = len(subseries)
+            local_window = min(available_len, scale_window)
+            local_scale = np.std(subseries[-local_window:])
+            subseries_std = subseries / local_scale
+
+            # --- Fit modelu EGARCH na lokalnie wystandaryzowanym oknie ---
             temp_model = arch_model(
-                subseries,
+                subseries_std,
                 vol="EGARCH",
                 p=vol.p,
                 o=vol.o,
@@ -53,23 +78,23 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
             )
             res = temp_model.fit(
                 disp="off",
-                last_obs=len(subseries) - 1,
+                last_obs=len(subseries_std) - 1,
                 update_freq=0,
                 starting_values=params,
             )
             params = res.params
-            param_history.append({"step": i, **params.to_dict()})
+            param_history.append({"step": i, "local_scale": local_scale, **params.to_dict()})
 
-        # prognozujemy zawsze na podstawie ostatniego dopasowanego modelu
-        fcast = res.forecast(horizon=1, reindex=False).variance.values[-1, 0]
+        # --- Prognoza wariancji z dopasowanego modelu ---
+        fcast = res.forecast(horizon=1, reindex=False).variance.values[-1, 0] * (local_scale ** 2)
         forecasts.append(fcast)
 
     # --- Dopasowanie długości ---
     test_df = test_df.iloc[:len(forecasts)].copy()
     test_df["var_pred"] = np.array(forecasts)
-    test_df["var_real"] = (test_df["log_return"] / scale) ** 2
+    test_df["var_real"] = (test_df["log_return"] / base_scale) ** 2  # realna wariancja w jednostkach base_scale
 
-    # --- Zapis parametrów batchów ---
+    # --- Zapis historii parametrów ---
     param_file = LOGS_DIR / "evaluation_params.json"
     with open(param_file, "w") as f:
         json.dump(param_history, f, indent=2)
@@ -121,4 +146,4 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
 
 
 if __name__ == "__main__":
-    evaluate_egarch(n_obs=300, batch_size=200)
+    evaluate_egarch(n_obs=300, batch_size=200, window_size=5000)

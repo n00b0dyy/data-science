@@ -1,13 +1,5 @@
-# ===========================================
-# src/evaluation.py
-# -------------------------------------------
-# Ewaluacja modelu EGARCH (out-of-sample)
-# - korelacja prognozowanej i rzeczywistej wariancji
-# - rolling forecast wykres zmienności
-# - dodatkowe miary: RMSE, MAE, QLIKE, Mincer–Zarnowitz
-# ===========================================
-
 import pickle
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,7 +9,7 @@ from src.data_loader import load_train_test_data
 from src.config import LOGS_DIR
 
 
-def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 500):
+def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 500, batch_size: int = 20):
     print(f"📂 Wczytuję model z {model_filename}...")
     payload = pickle.load(open(LOGS_DIR / model_filename, "rb"))
     fitted = payload["model"]
@@ -36,29 +28,39 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
     # --- Standaryzacja ---
     test_returns_std = test_df["log_return"] / scale
 
-    # --- Rolling forecast ---
-    print("🔮 Liczę rolling forecast wariancji...")
+    # --- Rolling forecast (batch refit co batch_size) ---
+    print(f"🔮 Rolling forecast wariancji (batch co {batch_size})...")
     model = fitted.model
     params = fitted.params
-
-    forecasts = []
-    vol = fitted.model.volatility
+    vol = model.volatility
     dist_name = "t"
 
+    forecasts = []
+    param_history = []
+    res = None  # ostatni dopasowany model (używany między refitami)
+
     for i in range(len(test_returns_std)):
-        subseries = np.concatenate([fitted.model._y, test_returns_std.values[:i]])
-        temp_model = arch_model(
-            subseries,
-            vol="EGARCH",
-            p=vol.p,
-            o=vol.o,
-            q=vol.q,
-            dist=dist_name,
-            mean="Constant",
-        )
-        res = temp_model.fit(
-            disp="off", last_obs=len(subseries) - 1, update_freq=0, starting_values=params
-        )
+        if i % batch_size == 0 or res is None:
+            subseries = np.concatenate([fitted.model._y, test_returns_std.values[:i]])
+            temp_model = arch_model(
+                subseries,
+                vol="EGARCH",
+                p=vol.p,
+                o=vol.o,
+                q=vol.q,
+                dist=dist_name,
+                mean="Constant",
+            )
+            res = temp_model.fit(
+                disp="off",
+                last_obs=len(subseries) - 1,
+                update_freq=0,
+                starting_values=params,
+            )
+            params = res.params
+            param_history.append({"step": i, **params.to_dict()})
+
+        # prognozujemy zawsze na podstawie ostatniego dopasowanego modelu
         fcast = res.forecast(horizon=1, reindex=False).variance.values[-1, 0]
         forecasts.append(fcast)
 
@@ -66,6 +68,12 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
     test_df = test_df.iloc[:len(forecasts)].copy()
     test_df["var_pred"] = np.array(forecasts)
     test_df["var_real"] = (test_df["log_return"] / scale) ** 2
+
+    # --- Zapis parametrów batchów ---
+    param_file = LOGS_DIR / "evaluation_params.json"
+    with open(param_file, "w") as f:
+        json.dump(param_history, f, indent=2)
+    print(f"🧾 Zapisano historię parametrów: {param_file.name}")
 
     # --- Wykres ---
     plt.figure(figsize=(12, 5))
@@ -84,7 +92,7 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
 
     rmse = np.sqrt(np.mean((pred - real) ** 2))
     mae = np.mean(np.abs(pred - real))
-    qlike = np.mean(np.log(pred) + real / pred)  # Patton (2011)
+    qlike = np.mean(np.log(pred) + real / pred)
     corr = np.corrcoef(np.sqrt(pred), np.sqrt(real))[0, 1]
 
     print("\n📊 Miary dokładności prognoz:")
@@ -100,12 +108,10 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
     alpha, beta = model_mz.params
     r2 = model_mz.rsquared
 
-    # Test hipotezy H0: β = 1
-    beta_se = model_mz.bse[1]               # standard error dla beta
-    t_stat = (beta - 1) / beta_se           # statystyka t
-    df = model_mz.df_resid
+    beta_se = model_mz.bse[1]
+    t_stat = (beta - 1) / beta_se
     from scipy import stats
-    p_val = 2 * (1 - stats.t.cdf(abs(t_stat), df))
+    p_val = 2 * (1 - stats.t.cdf(abs(t_stat), model_mz.df_resid))
 
     print(f"   🔸 α (const) = {alpha:.4f}")
     print(f"   🔸 β (slope) = {beta:.4f}")
@@ -114,23 +120,5 @@ def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl", n_obs: int = 
     print(f"   🔸 p-wartość : {p_val:.4f}")
 
 
-    # --- Test shuffle ---
-    print("\n🧪 Test diagnostyczny: korelacja przed i po przetasowaniu danych")
-    shuffled_real = np.random.permutation(np.sqrt(real))
-    corr_shuffled = np.corrcoef(np.sqrt(pred), shuffled_real)[0, 1]
-    drop = (corr - corr_shuffled) / abs(corr) * 100 if corr != 0 else 0
-
-    print(f"   📉 Korelacja po shuffle σ_real: {corr_shuffled:.4f}")
-    print(f"   📉 Spadek korelacji po shuffle: {drop:.2f}%")
-
-    plt.figure(figsize=(8, 5))
-    plt.scatter(np.sqrt(pred), shuffled_real, alpha=0.5, s=10, color="purple")
-    plt.title(f"σ_pred vs przetasowana σ_real (n_obs={n_obs})")
-    plt.xlabel("Prognozowana σ_t")
-    plt.ylabel("Rzeczywista σ_t (shuffle)")
-    plt.tight_layout()
-    plt.show()
-
-
 if __name__ == "__main__":
-    evaluate_egarch(n_obs=300)
+    evaluate_egarch(n_obs=300, batch_size=200)
