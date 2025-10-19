@@ -1,3 +1,10 @@
+# ===========================================
+# src/evaluation.py
+# -------------------------------------------
+# Walidacja modelu EGARCH na danych testowych
+# z zachowaniem właściwej skali.
+# ===========================================
+
 import pickle
 import json
 import numpy as np
@@ -5,145 +12,84 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from arch import arch_model
 import statsmodels.api as sm
+from scipy import stats
 from src.data_loader import load_train_test_data
 from src.config import LOGS_DIR
 
 
-def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o1_q1_t.pkl",
-                    n_obs: int = 500,
-                    batch_size: int = 20,
-                    window_size: int = 600,
-                    scale_window: int = 1000):
-    """
-    Ewaluacja EGARCH z rolling sliding window (nigdy nie widzi przyszłości).
-    Rolling scale (lokalne std) dodane dla adaptacji do zmian reżimu zmienności.
-    """
-    print(f"📂 Wczytuję model z {model_filename}...")
+def evaluate_egarch(model_filename="egarch_ETH_5m_p1_o2_q2_t.pkl",
+                    n_obs=300,
+                    batch_size=200,
+                    window_size=5000,
+                    scale_window=1000):
+    """Walidacja EGARCH na out-of-sample z rolling window i poprawnym skalowaniem."""
+    # --- Model ---
     payload = pickle.load(open(LOGS_DIR / model_filename, "rb"))
-    fitted = payload["model"]
-    base_scale = payload["scale"]  # tylko do pierwszej normalizacji
+    fitted, base_scale = payload["model"], payload["scale"]
+    model, params, vol = fitted.model, fitted.params, fitted.model.volatility
+    print(f"✅ Wczytano model: {model_filename} (scale={base_scale:.3e})")
 
-    # --- Wczytanie danych testowych ---
-    print("📈 Wczytuję dane testowe...")
-    train_df, test_df = load_train_test_data(load_test=True)
-
-    if len(test_df) > n_obs:
-        test_df = test_df.head(n_obs).reset_index(drop=True)
-        print(f"📏 Używam tylko pierwszych {n_obs} świeczek z testu.")
-    else:
-        print(f"⚠️ Test ma mniej niż {n_obs} świeczek ({len(test_df)}). Użaywam całości.")
-
-    # --- Standaryzacja testu tym samym współczynnikiem co train ---
+    # --- Dane ---
+    _, test_df = load_train_test_data(load_test=True)
+    test_df = test_df.head(n_obs).copy()
     test_returns_std = test_df["log_return"] / base_scale
 
-    # --- Rolling forecast ---
-    print(f"🔮 Rolling forecast wariancji (batch co {batch_size}, sliding window={window_size}, scale={scale_window})...")
-    model = fitted.model
-    params = fitted.params
-    vol = model.volatility
-    dist_name = "t"
+    total_series = np.concatenate([fitted.model._y, test_returns_std])
+    offset = len(fitted.model._y)
 
-    forecasts = []
-    param_history = []
-    res = None
-
-    train_y = fitted.model._y
-    total_series = np.concatenate([train_y, test_returns_std.values])
-    offset = len(train_y)
-
+    forecasts, params_hist = [], []
     for i in range(len(test_returns_std)):
-        if i % batch_size == 0 or res is None:
-            # --- SLIDING WINDOW: tylko przeszłość (do i) ---
+        if i % batch_size == 0:
             end = offset + i
-            start = max(0, end - window_size)
-            subseries = total_series[start:end]
+            sub = total_series[max(0, end - window_size):end]
 
-            # --- NOWE: Rolling scale ---
-            # Liczymy lokalne std z ostatnich scale_window obserwacji
-            # (jeśli jeszcze nie ma wystarczająco wielu punktów, bierzemy wszystko)
-            available_len = len(subseries)
-            local_window = min(available_len, scale_window)
-            local_scale = np.std(subseries[-local_window:])
-            subseries_std = subseries / local_scale
+            local_scale = np.std(sub[-scale_window:])
+            sub_std = sub / local_scale
 
-            # --- Fit modelu EGARCH na lokalnie wystandaryzowanym oknie ---
-            temp_model = arch_model(
-                subseries_std,
-                vol="EGARCH",
-                p=vol.p,
-                o=vol.o,
-                q=vol.q,
-                dist=dist_name,
-                mean="Constant",
-            )
-            res = temp_model.fit(
-                disp="off",
-                last_obs=len(subseries_std) - 1,
-                update_freq=0,
-                starting_values=params,
-            )
+            temp_model = arch_model(sub_std, vol="EGARCH",
+                                    p=vol.p, o=vol.o, q=vol.q,
+                                    dist="t", mean="Constant")
+            res = temp_model.fit(disp="off", update_freq=0, starting_values=params)
             params = res.params
-            param_history.append({"step": i, "local_scale": local_scale, **params.to_dict()})
+            params_hist.append({"step": i, **params.to_dict()})
 
-        # --- Prognoza wariancji z dopasowanego modelu ---
-        fcast = res.forecast(horizon=1, reindex=False).variance.values[-1, 0] * (local_scale ** 2)
-        forecasts.append(fcast)
+        fvar = res.forecast(horizon=1, reindex=False).variance.values[-1, 0]
+        forecasts.append(fvar * (local_scale ** 2) * (base_scale ** 2))
 
-    # --- Dopasowanie długości ---
-    test_df = test_df.iloc[:len(forecasts)].copy()
-    test_df["var_pred"] = np.array(forecasts)
-    test_df["var_real"] = (test_df["log_return"] / base_scale) ** 2  # realna wariancja w jednostkach base_scale
+    test_df["var_pred"] = forecasts
+    test_df["var_real"] = (test_df["log_return"]) ** 2
 
-    # --- Zapis historii parametrów ---
-    param_file = LOGS_DIR / "evaluation_params.json"
-    with open(param_file, "w") as f:
-        json.dump(param_history, f, indent=2)
-    print(f"🧾 Zapisano historię parametrów: {param_file.name}")
+    # --- Save params ---
+    json.dump(params_hist, open(LOGS_DIR / "evaluation_params.json", "w"), indent=2)
 
-    # --- Wykres ---
+    # --- Plot ---
     plt.figure(figsize=(12, 5))
-    plt.plot(test_df["open_time"], np.sqrt(test_df["var_pred"]), label="Prognozowana σ_t", color="red")
-    plt.plot(test_df["open_time"], np.sqrt(test_df["var_real"]), label="Rzeczywista σ_t", color="black", alpha=0.5)
-    plt.title(f"Rolling forecast – zmienność warunkowa (ostatnie {n_obs} świeczek)")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    plt.plot(test_df["open_time"], np.sqrt(test_df["var_real"]), color="black", alpha=0.6, label="σ_real")
+    plt.plot(test_df["open_time"], np.sqrt(test_df["var_pred"]), color="red", label="σ_pred")
+    plt.legend(); plt.title("EGARCH – walidacja out-of-sample"); plt.tight_layout(); plt.show()
 
-    print("✅ Ewaluacja zakończona.")
-
-    # --- Miary błędu prognoz ---
-    pred = test_df["var_pred"].values
-    real = test_df["var_real"].values
-
+    # --- Metrics ---
+    pred, real = test_df["var_pred"].values, test_df["var_real"].values
     rmse = np.sqrt(np.mean((pred - real) ** 2))
     mae = np.mean(np.abs(pred - real))
     qlike = np.mean(np.log(pred) + real / pred)
     corr = np.corrcoef(np.sqrt(pred), np.sqrt(real))[0, 1]
 
-    print("\n📊 Miary dokładności prognoz:")
-    print(f"   🔹 RMSE  : {rmse:.6e}")
-    print(f"   🔹 MAE   : {mae:.6e}")
-    print(f"   🔹 QLIKE : {qlike:.6e}")
-    print(f"   🔹 Korelacja σ_pred vs σ_real: {corr:.4f}")
+    print(f"\n📊 Wyniki walidacji:")
+    print(f"   RMSE : {rmse:.3e}")
+    print(f"   MAE  : {mae:.3e}")
+    print(f"   QLIKE: {qlike:.3e}")
+    print(f"   Corr σ_pred vs σ_real: {corr:.3f}")
 
-    # --- Mincer–Zarnowitz regression ---
-    print("\n🧩 Mincer–Zarnowitz test (kalibracja wariancji):")
+    # --- Mincer–Zarnowitz ---
     X = sm.add_constant(pred)
-    model_mz = sm.OLS(real, X).fit()
-    alpha, beta = model_mz.params
-    r2 = model_mz.rsquared
-
-    beta_se = model_mz.bse[1]
-    t_stat = (beta - 1) / beta_se
-    from scipy import stats
-    p_val = 2 * (1 - stats.t.cdf(abs(t_stat), model_mz.df_resid))
-
-    print(f"   🔸 α (const) = {alpha:.4f}")
-    print(f"   🔸 β (slope) = {beta:.4f}")
-    print(f"   🔸 R² = {r2:.4f}")
-    print(f"   🔸 t-stat β=1 : {t_stat:.4f}")
-    print(f"   🔸 p-wartość : {p_val:.4f}")
+    mz = sm.OLS(real, X).fit()
+    α, β = mz.params
+    t = (β - 1) / mz.bse[1]
+    p = 2 * (1 - stats.t.cdf(abs(t), mz.df_resid))
+    print(f"\n🧩 Mincer–Zarnowitz:")
+    print(f"   α={α:.4f}, β={β:.4f}, R²={mz.rsquared:.4f}, p(β=1)={p:.4f}")
 
 
 if __name__ == "__main__":
-    evaluate_egarch(n_obs=300, batch_size=200, window_size=5000)
+    evaluate_egarch()

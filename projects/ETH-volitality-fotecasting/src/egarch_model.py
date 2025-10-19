@@ -17,33 +17,38 @@ def fit_egarch(
     returns: pd.Series,
     p: int = 1,
     o: int = 1,
-    q: int = 1,
-    dist: str = "normal",
-    mean: str = "Constant"
+    q: int = 2,
+    dist: str = "t",
+    mean: str = "constant"
 ):
     """
-    Trenuje model EGARCH(p, o, q) na standaryzowanych log-zwrotach.
+    Trenuje model EGARCH(p, o, q) na wystandaryzowanych log-zwrotach.
     Uwaga:
     - skalowanie przez std(train) poprawia stabilność numeryczną
-    - przy prognozach out-of-sample należy stosować to samo skalowanie
-      (ten sam współczynnik z treningu, bez użycia test.std()).
+    - ten sam współczynnik należy stosować przy symulacji live
     """
 
-    # --- Standaryzacja (tylko na train) ---
-    scale = returns.std()
+    # --- Skalowanie (zabezpieczenie przed zbyt małą wariancją) ---
+    scale = returns.std(ddof=0)
+    if scale < 1e-6:
+        raise ValueError("⚠️ Skalowanie niestabilne: std zbyt małe, dane prawdopodobnie błędne.")
     returns_std = returns / scale
 
     # --- Definicja i trening modelu ---
-    model = arch_model(returns_std, vol="EGARCH", p=p, o=o, q=q, dist=dist, mean=mean)
-    print("🔧 Trenuję model EGARCH...")
-    fitted = model.fit(disp="off")
-    print("✅ Trening zakończony.")
+    model = arch_model(
+        returns_std,
+        vol="EGARCH",
+        p=p, o=o, q=q,
+        dist=dist,
+        mean=mean
+    )
 
-    # --- Parametry ---
+    print(f"🔧 Trenuję model EGARCH(p={p}, o={o}, q={q}, dist={dist})...")
+    fitted = model.fit(disp="off", update_freq=0)
+    print("✅ Trening zakończony.")
     print("\nParametry modelu:")
     print(fitted.params)
 
-    # --- Zwracamy dopasowany model + współczynnik skalowania ---
     return fitted, scale
 
 
